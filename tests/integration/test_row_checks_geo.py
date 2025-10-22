@@ -1,5 +1,7 @@
 from chispa.dataframe_comparer import assert_df_equality  # type: ignore
 from databricks.labs.dqx.geo.check_funcs import (
+    has_area_greater_than,
+    has_area_less_than,
     has_dimension,
     has_x_coordinate_between,
     has_y_coordinate_between,
@@ -16,6 +18,8 @@ from databricks.labs.dqx.geo.check_funcs import (
     is_point,
     is_polygon,
     is_ogc_valid,
+    has_num_points_greater_than,
+    has_num_points_less_than,
 )
 
 
@@ -393,6 +397,140 @@ def test_has_y_coordinate_between(skip_if_runtime_not_geo_compatible, spark):
             ["value `nonsense` in column `geom` has y coordinates outside the range [0, 1]"],
             ["value `POLYGON((0 0, 2 0, 0 2, 0 0))` in column `geom` has y coordinates outside the range [0, 1]"],
             [None],
+        ],
+        checked_schema,
+    )
+
+    assert_df_equality(actual, expected, ignore_nullable=True)
+
+
+def test_area_not_greater_than(skip_if_runtime_not_geo_compatible, spark):
+    test_df = spark.sql(
+        """
+        SELECT geom FROM VALUES
+        ('POINT(0 0)'),                                         -- Point has area 0
+        ('POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))'),                -- Unit square has area 1
+        ('POLYGON((0 0, 2 0, 2 2, 0 2, 0 0))'),                -- 2x2 square has area 4
+        ('invalid-geometry'),                                   -- Invalid geometry
+        (null)                                                  -- Null geometry
+        AS data(geom)
+    """
+    )
+
+    actual = test_df.select(has_area_greater_than("geom", 2.0))
+
+    checked_schema = "geom_area_greater_than_limit: string"
+    expected = spark.createDataFrame(
+        [
+            [None],  # Point area (0) <= 2.0, so no error
+            [None],  # Square area (1) <= 2.0, so no error
+            [
+                "value `POLYGON((0 0, 2 0, 2 2, 0 2, 0 0))` in column `geom` has area greater than limit: 2.0"
+            ],  # Area (4) > 2.0
+            ["value `invalid-geometry` in column `geom` has area greater than limit: 2.0"],  # Invalid geometry
+            [None],  # Null geometry
+        ],
+        checked_schema,
+    )
+
+    assert_df_equality(actual, expected, ignore_nullable=True)
+
+
+def test_area_not_less_than(skip_if_runtime_not_geo_compatible, spark):
+    test_df = spark.sql(
+        """
+        SELECT geom FROM VALUES
+        ('POINT(0 0)'),                                         -- Point has area 0
+        ('POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))'),                -- Unit square has area 1
+        ('POLYGON((0 0, 2 0, 2 2, 0 2, 0 0))'),                -- 2x2 square has area 4
+        ('invalid-geometry'),                                   -- Invalid geometry
+        (null)                                                  -- Null geometry
+        AS data(geom)
+    """
+    )
+
+    actual = test_df.select(has_area_less_than("geom", 1.0))
+
+    checked_schema = "geom_area_less_than_limit: string"
+    expected = spark.createDataFrame(
+        [
+            ["value `POINT(0 0)` in column `geom` has area less than limit: 1.0"],  # Point area (0) < 1.0
+            [None],  # Square area (1) >= 1.0, so no error
+            [None],  # Square area (4) >= 1.0, so no error
+            ["value `invalid-geometry` in column `geom` has area less than limit: 1.0"],  # Invalid geometry
+            [None],  # Null geometry
+        ],
+        checked_schema,
+    )
+
+    assert_df_equality(actual, expected, ignore_nullable=True)
+
+
+def test_num_points_not_greater_than(skip_if_runtime_not_geo_compatible, spark):
+    test_df = spark.sql(
+        """
+        SELECT geom FROM VALUES
+        ('POINT(0 0)'),                                         -- 1 point
+        ('LINESTRING(0 0, 1 1)'),                              -- 2 points
+        ('LINESTRING(0 0, 1 1, 2 2)'),                         -- 3 points
+        ('POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))'),                -- 5 points (including closing point)
+        ('invalid-geometry'),                                   -- Invalid geometry
+        (null)                                                  -- Null geometry
+        AS data(geom)
+    """
+    )
+
+    actual = test_df.select(has_num_points_less_than("geom", 3))
+
+    checked_schema = "geom_num_points_greater_than_limit: string"
+    expected = spark.createDataFrame(
+        [
+            [None],  # Point (1 point) <= 3, so no error
+            [None],  # LineString (2 points) <= 3, so no error
+            [None],  # LineString (3 points) <= 3, so no error
+            [
+                "value `POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))` in column `geom` has number of coordinates greater than limit: 3"
+            ],  # Polygon (5 points) > 3
+            [
+                "value `invalid-geometry` in column `geom` has number of coordinates greater than limit: 3"
+            ],  # Invalid geometry
+            [None],  # Null geometry
+        ],
+        checked_schema,
+    )
+
+    assert_df_equality(actual, expected, ignore_nullable=True)
+
+
+def test_num_points_not_less_than(skip_if_runtime_not_geo_compatible, spark):
+    test_df = spark.sql(
+        """
+        SELECT geom FROM VALUES
+        ('POINT(0 0)'),                                         -- 1 point
+        ('LINESTRING(0 0, 1 1)'),                              -- 2 points
+        ('LINESTRING(0 0, 1 1, 2 2)'),                         -- 3 points
+        ('POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))'),                -- 5 points (including closing point)
+        ('invalid-geometry'),                                   -- Invalid geometry
+        (null)                                                  -- Null geometry
+        AS data(geom)
+    """
+    )
+
+    actual = test_df.select(has_num_points_greater_than("geom", 3))
+
+    checked_schema = "geom_num_points_less_than_limit: string"
+    expected = spark.createDataFrame(
+        [
+            ["value `POINT(0 0)` in column `geom` has number of coordinates less than limit: 3"],  # Point (1 point) < 3
+            [
+                "value `LINESTRING(0 0, 1 1)` in column `geom` has number of coordinates less than limit: 3"
+            ],  # LineString (2 points) < 3
+            [None],  # LineString (3 points) >= 3, so no error
+            [None],  # Polygon (5 points) >= 3, so no error
+            [
+                "value `invalid-geometry` in column `geom` has number of coordinates less than limit: 3"
+            ],  # Invalid geometry
+            [None],  # Null geometry
         ],
         checked_schema,
     )
