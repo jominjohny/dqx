@@ -97,11 +97,7 @@ class MultipleColumnsMixin:
         if columns is not None and "columns" in valid_params:
             if not columns:
                 # Allow empty columns if LLM matching key detection is enabled
-                enable_llm_matching_key_detection = False
-                if hasattr(self, 'check_func_kwargs'):
-                    enable_llm_matching_key_detection = getattr(self, 'check_func_kwargs', {}).get(
-                        "enable_llm_matching_key_detection", False
-                    )
+                enable_llm_matching_key_detection = self._is_llm_matching_enabled()
                 if not enable_llm_matching_key_detection:
                     raise InvalidCheckError("'columns' cannot be empty.")
             for col in columns:
@@ -109,6 +105,15 @@ class MultipleColumnsMixin:
                     raise InvalidCheckError("'columns' list contains a None element.")
             return [columns]
         return []
+
+    def _is_llm_matching_enabled(self) -> bool:
+        """Check if LLM matching key detection is enabled via configuration."""
+        if not hasattr(self, 'check_func_kwargs'):
+            return False
+        kwargs = getattr(self, 'check_func_kwargs', {})
+        llm_opts = kwargs.get("llm_matching_key_detection_options")
+        # LLM is enabled if options dict is provided and enable flag is True (default)
+        return llm_opts is not None and (isinstance(llm_opts, dict) and llm_opts.get("enable", True))
 
 
 class DQRuleTypeMixin:
